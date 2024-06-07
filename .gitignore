@@ -63,3 +63,9 @@ Gemfile.lock
 documents
 temp
 venv
+
+# testing scripts
+*.json
+*.py
+output
+apk
