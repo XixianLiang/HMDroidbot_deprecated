@@ -4,31 +4,25 @@ import re
 import subprocess
 import sys
 import time
+from typing import IO
 
-from .adapter.adb import ADB
-from .adapter.droidbot_app import DroidBotAppConn
-from .adapter.logcat import Logcat
-from .adapter.minicap import Minicap
-from .adapter.process_monitor import ProcessMonitor
-from .adapter.telnet import TelnetConsole
-from .adapter.user_input_monitor import UserInputMonitor
-from .adapter.droidbot_ime import DroidBotIme
-from .app import App
-from .intent import Intent
+from .device import Device
 from .adapter.hdc import HDC
+from .app_hm import AppHM
+from .intent import Intent
 
 DEFAULT_NUM = '1234567890'
 DEFAULT_CONTENT = 'Hello world!'
+HDC_EXEC = "hdc.exe"
 
-
-class Device(object):
+class DeviceHM(Device):
     """
     this class describes a connected device
     """
 
     def __init__(self, device_serial=None, is_emulator=False, output_dir=None,
                  cv_mode=False, grant_perm=False, telnet_auth_token=None,
-                 enable_accessibility_hard=False, humanoid=None, ignore_ad=False, is_harmonyos=False):
+                 enable_accessibility_hard=False, humanoid=None, ignore_ad=False, is_harmonyos=True):
         """
         initialize a device connection
         :param device_serial: serial number of target device
@@ -37,13 +31,13 @@ class Device(object):
         """
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        if device_serial is None:
-            from .utils import get_available_devices
-            all_devices = get_available_devices()
-            if len(all_devices) == 0:
-                self.logger.warning("ERROR: No device connected.")
-                sys.exit(-1)
-            device_serial = all_devices[0]
+        # if device_serial is None:
+        #     from .utils import get_available_devices
+        #     all_devices = get_available_devices()
+        #     if len(all_devices) == 0:
+        #         self.logger.warning("ERROR: No device connected.")
+        #         sys.exit(-1)
+        #     device_serial = all_devices[0]
         if "emulator" in device_serial and not is_emulator:
             self.logger.warning("Seems like you are using an emulator. If so, please add is_emulator option.")
         self.serial = device_serial
@@ -71,38 +65,16 @@ class Device(object):
         self.__used_ports = []
         self.pause_sending_event = False
 
-        # adapters
-        self.adb = ADB(device=self)
-        self.telnet = TelnetConsole(device=self, auth_token=telnet_auth_token)
-        self.droidbot_app = DroidBotAppConn(device=self)
-        self.minicap = Minicap(device=self)
-        self.logcat = Logcat(device=self)
-        self.user_input_monitor = UserInputMonitor(device=self)
-        self.process_monitor = ProcessMonitor(device=self)
-        self.droidbot_ime = DroidBotIme(device=self)
-        self.hdc = HDC(device=self)
         self.is_harmonyos = is_harmonyos
-    
+
+        # adapters
+        self.hdc = HDC(device=self)
+
+
+        self.logger.info("You're runing droidbot on HarmonyOS")
         self.adapters = {
-            self.adb: True,
-            self.telnet: False,
-            self.droidbot_app: True,
-            self.minicap: True,
-            self.logcat: True,
-            self.user_input_monitor: True,
-            self.process_monitor: True,
-            self.droidbot_ime: True
+            self.hdc: True
         }
-
-        # minicap currently not working on emulators
-        if self.is_emulator:
-            self.logger.info("disable minicap on emulator")
-            self.adapters[self.minicap] = False
-
-        # minicap is not supporting android 32 and above
-        if self.get_sdk_version() >= 32:
-            self.logger.info("disable minicap on sdk >= 32")
-            self.adapters[self.minicap] = False
 
     def check_connectivity(self):
         """
@@ -119,31 +91,31 @@ class Device(object):
                 else:
                     print("[CONNECTION] %s is enabled but not connected." % adapter_name)
 
-    def wait_for_device(self):
-        """
-        wait until the device is fully booted
-        :return:
-        """
-        self.logger.info("waiting for device")
-        try:
-            subprocess.check_call(["adb", "-s", self.serial, "wait-for-device"])
-            # while True:
-            #     out = subprocess.check_output(
-            #         ["adb", "-s", self.serial, "shell", "getprop", "init.svc.bootanim"]).split()[0]
-            #     if not isinstance(out, str):
-            #         out = out.decode()
-            #     if out == "stopped":
-            #         break
-            #     time.sleep(1)
-        except:
-            self.logger.warning("error waiting for device")
+    # def wait_for_device(self):
+    #     """
+    #     wait until the device is fully booted
+    #     :return:
+    #     """
+    #     self.logger.info("waiting for device")
+    #     try:
+    #         subprocess.check_call(["adb", "-s", self.serial, "wait-for-device"])
+    #         # while True:
+    #         #     out = subprocess.check_output(
+    #         #         ["adb", "-s", self.serial, "shell", "getprop", "init.svc.bootanim"]).split()[0]
+    #         #     if not isinstance(out, str):
+    #         #         out = out.decode()
+    #         #     if out == "stopped":
+    #         #         break
+    #         #     time.sleep(1)
+    #     except:
+    #         self.logger.warning("error waiting for device")
 
     def set_up(self):
         """
         Set connections on this device
         """
         # wait for emulator to start
-        self.wait_for_device()
+        # self.wait_for_device()
         for adapter in self.adapters:
             adapter_enabled = self.adapters[adapter]
             if not adapter_enabled:
@@ -161,11 +133,11 @@ class Device(object):
                 continue
             adapter.connect()
 
-        self.get_sdk_version()
-        self.get_release_version()
-        self.get_ro_secure()
-        self.get_ro_debuggable()
-        self.get_display_info()
+        # self.get_sdk_version()
+        # self.get_release_version()
+        # self.get_ro_secure()
+        # self.get_ro_debuggable()
+        # self.get_display_info()
 
         self.unlock()
         self.check_connectivity()
@@ -204,7 +176,7 @@ class Device(object):
         """
         if isinstance(app, str):
             package_name = app
-        elif isinstance(app, App):
+        elif isinstance(app, AppHM):
             package_name = app.get_package_name()
         else:
             return False
@@ -219,34 +191,25 @@ class Device(object):
         Get model number
         """
         if self.model_number is None:
-            self.model_number = self.adb.get_model_number()
+            self.model_number = self.hdc.get_model_number()
         return self.model_number
 
     def get_sdk_version(self):
-        """
-        Get version of current SDK
-        """
-        if self.sdk_version is None:
-            self.sdk_version = self.adb.get_sdk_version()
-        return self.sdk_version
+        pass
 
     def get_release_version(self):
         """
         Get version of current SDK
         """
         if self.release_version is None:
-            self.release_version = self.adb.get_release_version()
+            self.release_version = self.hdc.get_release_version()
         return self.release_version
 
     def get_ro_secure(self):
-        if self.ro_secure is None:
-            self.ro_secure = self.adb.get_ro_secure()
-        return self.ro_secure
+        pass
 
     def get_ro_debuggable(self):
-        if self.ro_debuggable is None:
-            self.ro_debuggable = self.adb.get_ro_debuggable()
-        return self.ro_debuggable
+        pass
 
     def get_display_info(self, refresh=True):
         """
@@ -254,9 +217,12 @@ class Device(object):
         :param refresh: if set to True, refresh the display info instead of using the old values
         :return: dict, display_info
         """
-        if self.display_info is None or refresh:
-            self.display_info = self.adb.get_display_info()
-        return self.display_info
+        r = self.hdc.shell("hidumper -s RenderService -a screen")
+        pattern = r"activeMode: (?P<width>\d+)x(?P<height>\d+)"
+        m = re.search(pattern, r)
+        assert m, "Failed when getting screen resolution with hidumper"
+        display_info = {"width":int(m.group("width")), "height":int(m.group("height"))}
+        return display_info
 
     def get_width(self, refresh=False):
         display_info = self.get_display_info(refresh=refresh)
@@ -287,7 +253,7 @@ class Device(object):
         etc
         :return:
         """
-        self.adb.unlock()
+        self.hdc.unlock()
 
     def shake(self):
         """
@@ -473,13 +439,13 @@ class Device(object):
         :param intent: instance of Intent or str
         :return:
         """
-        assert self.adb is not None
+        assert self.hdc is not None
         assert intent is not None
         if isinstance(intent, Intent):
             cmd = intent.get_cmd()
         else:
             cmd = intent
-        return self.adb.shell(cmd)
+        return self.hdc.shell(cmd)
 
     def send_event(self, event):
         """
@@ -511,17 +477,24 @@ class Device(object):
         """
         Get current activity
         """
-        r = self.adb.shell("dumpsys activity activities")
-        activity_line_re = re.compile(r'\*\s*Hist\s*#\d+:\s*ActivityRecord\{[^ ]+\s*[^ ]+\s*([^ ]+)\s*t(\d+)}')
-        m = activity_line_re.search(r)
-        if m:
-            return m.group(1)
-        # data = self.adb.shell("dumpsys activity top").splitlines()
-        # regex = re.compile("\s*ACTIVITY ([A-Za-z0-9_.]+)/([A-Za-z0-9_.]+)")
-        # m = regex.search(data[1])
-        # if m:
-        #     return m.group(1) + "/" + m.group(2)
-        self.logger.warning("Unable to get top activity name.")
+        r = self.hdc.shell("aa dump --mission-list")
+
+        if r"#FOREGROUND" not in r:
+            return None
+        
+        mission_list = r.split("Mission ID")
+        for mission in mission_list:
+            if "state" not in mission:
+                continue
+            if "#BACKGROUND" in mission:
+                continue
+            
+            import re
+            pattern = r"mission name #\[#(?P<bundleName>.+?):.+?:(?P<abilityName>.+?)\]"
+            m = re.search(pattern, mission)
+            if m:
+                return m.group("bundleName") + "/" + m.group("abilityName")
+        
         return None
 
     def get_current_activity_stack(self):
@@ -592,9 +565,9 @@ class Device(object):
 
     def get_package_path(self, package_name):
         """
-        get installation path of a package (app)
+        get the installed package (app)
         :param package_name:
-        :return: package path of app in device
+        :return: list of packages (app) in device
         """
         dat = self.adb.shell('pm path %s' % package_name)
         package_path_re = re.compile('^package:(.+)$')
@@ -604,43 +577,34 @@ class Device(object):
             return path.strip()
         return None
 
-    def start_activity_via_monkey(self, package):
-        """
-        use monkey to start activity
-        @param package: package name of target activity
-        """
-        cmd = 'monkey'
-        if package:
-            cmd += ' -p %s' % package
-        out = self.adb.shell(cmd)
-        if re.search(r"(Error)|(Cannot find 'App')", out, re.IGNORECASE | re.MULTILINE):
-            raise RuntimeError(out)
-
     def install_app(self, app):
         """
         install an app to device
         @param app: instance of App
         @return:
         """
-        assert isinstance(app, App)
+        assert isinstance(app, AppHM)
         # subprocess.check_call(["adb", "-s", self.serial, "uninstall", app.get_package_name()],
         #                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         package_name = app.get_package_name()
-        if package_name not in self.adb.get_installed_apps():
-            install_cmd = ["adb", "-s", self.serial, "install", "-r"]
-            if self.grant_perm and self.get_sdk_version() >= 23:
-                install_cmd.append("-g")
-            install_cmd.append(app.app_path)
+        if package_name not in self.hdc.get_installed_apps():
+            install_cmd = [HDC_EXEC, "-t", self.serial, "install", "-r"]
+            install_cmd.append(HDC.get_relative_path(app.app_path))
             install_p = subprocess.Popen(install_cmd, stdout=subprocess.PIPE)
-            while self.connected and package_name not in self.adb.get_installed_apps():
-                print("Please wait while installing the app...")
-                time.sleep(2)
+            # print(" ".join(install_cmd))
+
+            print("Please wait while installing the app...")
+            output = install_p.stdout.readline()
+            if output:
+                print(output.strip().decode())
+
             if not self.connected:
                 install_p.terminate()
                 return
-
-        dumpsys_p = subprocess.Popen(["adb", "-s", self.serial, "shell",
-                                      "dumpsys", "package", package_name], stdout=subprocess.PIPE)
+        # dump the package info through the bundleName
+        # hdc shell bm dump -n [bundleName]
+        dumpsys_p = subprocess.Popen([HDC_EXEC, "-t", self.serial, "shell",
+                                      "bm","dump" ,"-n", package_name], stdout=subprocess.PIPE)
         dumpsys_lines = []
         while True:
             line = dumpsys_p.stdout.readline()
@@ -649,84 +613,93 @@ class Device(object):
             if not isinstance(line, str):
                 line = line.decode()
             dumpsys_lines.append(line)
+
         if self.output_dir is not None:
             package_info_file_name = "%s/dumpsys_package_%s.txt" % (self.output_dir, app.get_package_name())
-            package_info_file = open(package_info_file_name, "w")
-            package_info_file.writelines(dumpsys_lines)
-            package_info_file.close()
-        app.dumpsys_main_activity = self.__parse_main_activity_from_dumpsys_lines(dumpsys_lines)
+            with open(package_info_file_name, "w") as fp:
+                fp.writelines(dumpsys_lines)
+        
+        with open(package_info_file_name, "r") as fp:
+            app.dumpsys_main_activity = self.__parse_main_activity_from_dumpsys_lines(fp)
 
         self.logger.info("App installed: %s" % package_name)
         self.logger.info("Main activity: %s" % app.get_main_activity())
 
     @staticmethod
-    def __parse_main_activity_from_dumpsys_lines(lines):
-        main_activity = None
-        activity_line_re = re.compile("[^ ]+ ([^ ]+)/([^ ]+) filter [^ ]+")
-        action_re = re.compile("Action: \"([^ ]+)\"")
-        category_re = re.compile("Category: \"([^ ]+)\"")
+    def __parse_main_activity_from_dumpsys_lines(fp:IO):
+        """
+        """
 
-        activities = {}
+        # jump the fist line (the bundleName, which dosen't follow the json format)
+        # to correctly parse the file into json
+        cur_package = fp.readline().replace(":", "").strip()
 
-        cur_package = None
-        cur_activity = None
-        cur_actions = []
-        cur_categories = []
+        import json
+        dumpsys = json.load(fp)
 
-        for line in lines:
-            line = line.strip()
-            m = activity_line_re.match(line)
-            if m:
-                activities[cur_activity] = {
-                    "actions": cur_actions,
-                    "categories": cur_categories
-                }
-                cur_package = m.group(1)
-                cur_activity = m.group(2)
-                if cur_activity.startswith("."):
-                    cur_activity = cur_package + cur_activity
-                cur_actions = []
-                cur_categories = []
-            else:
-                m1 = action_re.match(line)
-                if m1:
-                    cur_actions.append(m1.group(1))
-                else:
-                    m2 = category_re.match(line)
-                    if m2:
-                        cur_categories.append(m2.group(1))
+        # main_activity = None
+        # activity_line_re = re.compile("[^ ]+ ([^ ]+)/([^ ]+) filter [^ ]+")
+        # action_re = re.compile("Action: \"([^ ]+)\"")
+        # category_re = re.compile("Category: \"([^ ]+)\"")
 
-        if cur_activity is not None:
-            activities[cur_activity] = {
-                "actions": cur_actions,
-                "categories": cur_categories
-            }
+        # activities = {}
 
-        for activity in activities:
-            if "android.intent.action.MAIN" in activities[activity]["actions"] \
-                    and "android.intent.category.LAUNCHER" in activities[activity]["categories"]:
-                main_activity = activity
-        return main_activity
+        # cur_package = None
+        # cur_activity = None
+        # cur_actions = []
+        # cur_categories = []
+
+        # for line in lines:
+        #     line = line.strip()
+        #     m = activity_line_re.match(line)
+        #     if m:
+        #         activities[cur_activity] = {
+        #             "actions": cur_actions,
+        #             "categories": cur_categories
+        #         }
+        #         cur_package = m.group(1)
+        #         cur_activity = m.group(2)
+        #         if cur_activity.startswith("."):
+        #             cur_activity = cur_package + cur_activity
+        #         cur_actions = []
+        #         cur_categories = []
+        #     else:
+        #         m1 = action_re.match(line)
+        #         if m1:
+        #             cur_actions.append(m1.group(1))
+        #         else:
+        #             m2 = category_re.match(line)
+        #             if m2:
+        #                 cur_categories.append(m2.group(1))
+
+        # if cur_activity is not None:
+        #     activities[cur_activity] = {
+        #         "actions": cur_actions,
+        #         "categories": cur_categories
+        #     }
+
+        # main ability
+        return dumpsys["hapModuleInfos"][0]["mainAbility"]
 
     def uninstall_app(self, app):
         """
         Uninstall an app from device.
         :param app: an instance of App or a package name
         """
-        if isinstance(app, App):
+        if isinstance(app, AppHM):
             package_name = app.get_package_name()
         else:
             package_name = app
-        if package_name in self.adb.get_installed_apps():
-            uninstall_cmd = ["adb", "-s", self.serial, "uninstall", package_name]
+        if package_name in self.hdc.get_installed_apps():
+            uninstall_cmd = [HDC_EXEC, "-t", self.serial, "uninstall", package_name]
             uninstall_p = subprocess.Popen(uninstall_cmd, stdout=subprocess.PIPE)
-            while package_name in self.adb.get_installed_apps():
+            while package_name in self.hdc.get_installed_apps():
                 print("Please wait while uninstalling the app...")
                 time.sleep(2)
             uninstall_p.terminate()
 
     def get_app_pid(self, app):
-        if isinstance(app, App):
+        if isinstance(app, AppHM):
             package = app.get_package_name()
         else:
             package = app
@@ -766,48 +739,28 @@ class Device(object):
         """
         if not os.path.exists(local_file):
             self.logger.warning("push_file file does not exist: %s" % local_file)
-        self.adb.run_cmd(["push", local_file, remote_dir])
+        self.hdc.run_cmd(["file send", local_file, remote_dir])
 
     def pull_file(self, remote_file, local_file):
-        self.adb.run_cmd(["pull", remote_file, local_file])
+        r = self.hdc.run_cmd(["file", "recv", remote_file, local_file])
+        assert not r.startswith("[Fail]"), "Error with receiving file"
 
     def take_screenshot(self):
-        # image = None
-        #
-        # received = self.adb.shell("screencap -p").replace("\r\n", "\n")
-        # import StringIO
-        # stream = StringIO.StringIO(received)
-        #
-        # try:
-        #     from PIL import Image
-        #     image = Image.open(stream)
-        # except IOError as e:
-        #     self.logger.warning("exception in take_screenshot: %s" % e)
-        # return image
+        
         if self.output_dir is None:
             return None
 
-        from datetime import datetime
-        tag = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        local_image_dir = os.path.join(self.output_dir, "temp")
-        if not os.path.exists(local_image_dir):
-            os.makedirs(local_image_dir)
+        r = self.hdc.shell("snapshot_display")
+        assert "success" in r, "Error when taking screenshot"
 
-        if self.adapters[self.minicap] and self.minicap.last_screen:
-            # minicap use jpg format
-            local_image_path = os.path.join(local_image_dir, "screen_%s.jpg" % tag)
-            with open(local_image_path, 'wb') as local_image_file:
-                local_image_file.write(self.minicap.last_screen)
-            return local_image_path
-        else:
-            # screencap use png format
-            local_image_path = os.path.join(local_image_dir, "screen_%s.png" % tag)
-            remote_image_path = "/sdcard/screen_%s.png" % tag
-            self.adb.shell("screencap -p %s" % remote_image_path)
-            self.pull_file(remote_image_path, local_image_path)
-            self.adb.shell("rm %s" % remote_image_path)
+        remote_path = r.splitlines()[0].split()[-1]
+        file_name = os.path.basename(remote_path)
+        temp_path = os.path.join(self.output_dir, "temp")
+        local_path = os.path.join(os.getcwd(), temp_path, file_name)
 
-        return local_image_path
+        self.pull_file(remote_path, HDC.get_relative_path(local_path))
+
+        return local_path
 
     def get_current_state(self):
         self.logger.debug("getting current device state...")
@@ -815,8 +768,9 @@ class Device(object):
         try:
             views = self.get_views()
             foreground_activity = self.get_top_activity_name()
-            activity_stack = self.get_current_activity_stack()
-            background_services = self.get_service_names()
+            # activity_stack = self.get_current_activity_stack()
+            activity_stack = [foreground_activity]      # TODO Need to get the stack
+            # background_services = self.get_service_names()
             screenshot_path = self.take_screenshot()
             self.logger.debug("finish getting current device state...")
             from .device_state import DeviceState
@@ -824,7 +778,7 @@ class Device(object):
                                         views=views,
                                         foreground_activity=foreground_activity,
                                         activity_stack=activity_stack,
-                                        background_services=background_services,
+                                        background_services=None,
                                         screenshot_path=screenshot_path)
         except Exception as e:
             self.logger.warning("exception in get_current_state: %s" % e)
@@ -840,7 +794,7 @@ class Device(object):
         return self.last_know_state
 
     def view_touch(self, x, y):
-        self.adb.touch(x, y)
+        self.hdc.touch(x, y)
 
     def view_long_touch(self, x, y, duration=2000):
         """
@@ -848,58 +802,57 @@ class Device(object):
         @param duration: duration in ms
         This workaround was suggested by U{HaMi<http://stackoverflow.com/users/2571957/hami>}
         """
-        self.adb.long_touch(x, y, duration)
+        self.hdc.long_touch(x, y, duration)
 
     def view_drag(self, start_xy, end_xy, duration):
         """
         Sends drag event n PX (actually it's using C{input swipe} command.
         """
-        self.adb.drag(start_xy, end_xy, duration)
+        self.hdc.drag(start_xy, end_xy, duration)
 
     def view_append_text(self, text):
         if self.droidbot_ime.connected:
             self.droidbot_ime.input_text(text=text, mode=1)
         else:
-            self.adb.type(text)
+            self.hdc.type(text)
 
     def view_set_text(self, text):
-        if self.droidbot_ime.connected:
-            self.droidbot_ime.input_text(text=text, mode=0)
-        else:
-            self.logger.warning("`adb shell input text` doesn't support setting text, appending instead.")
-            self.adb.type(text)
+        self.hdc.type(text)
 
     def key_press(self, key_code):
-        self.adb.press(key_code)
+        self.hdc.press(key_code)
 
     def shutdown(self):
-        self.adb.shell("reboot -p")
+        pass
+        # self.adb.shell("reboot -p")
 
     def get_views(self):
-        if self.cv_mode and self.adapters[self.minicap]:
-            # Get views using cv module
-            views = self.minicap.get_views()
-            if views:
-                return views
-            else:
-                self.logger.warning("Failed to get views using OpenCV.")
-        if self.droidbot_app and self.adapters[self.droidbot_app]:
-            views = self.droidbot_app.get_views()
-            if views:
-                return views
-            else:
-                self.logger.warning("Failed to get views using Accessibility.")
         # TODO add hdc adapter
         if self.hdc:
-            views = self.hdc.get_views()
+            views = self.hdc_get_views()
             if views:
                 return views
             else:
                 self.logger.warning("Failed to get views using HDC.")
-        
 
         self.logger.warning("failed to get current views!")
         return None
+
+    def hdc_get_views(self):
+        if self.output_dir is None:
+            return None
+
+        r = self.hdc.shell("uitest dumpLayout")
+        assert "DumpLayout saved to" in r, "Error when dumping layout"
+
+        remote_path = r.split(":")[-1]
+        file_name = os.path.basename(remote_path)
+        temp_path = os.path.join(self.output_dir, "temp")
+        local_path = os.path.join(os.getcwd(), temp_path, file_name)
+
+        self.pull_file(remote_path, HDC.get_relative_path(local_path))
+
+        return self.hdc.get_views(local_path)
 
     def get_random_port(self):
         """

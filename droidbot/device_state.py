@@ -60,11 +60,9 @@ class DeviceState(object):
             return views
 
         for view_dict in raw_views:
-            # # Simplify resource_id
-            # resource_id = view_dict['resource_id']
-            # if resource_id is not None and ":" in resource_id:
-            #     resource_id = resource_id[(resource_id.find(":") + 1):]
-            #     view_dict['resource_id'] = resource_id
+            # # exclude the "com.ohos.sceneboard", which is the status bar in harmonyOS
+            # if self.__safe_dict_get(view_dict, "package") == "com.ohos.sceneboard":
+            #     continue
             views.append(view_dict)
         return views
 
@@ -119,6 +117,10 @@ class DeviceState(object):
         else:
             view_signatures = set()
             for view in self.views:
+                if self.device.is_harmonyos:
+                    # exclude the com.ohos.sceneboard package in harmonyOS
+                    if self.__safe_dict_get(view, "package") == "com.ohos.sceneboard":
+                        continue
                 view_signature = DeviceState.__get_view_signature(view)
                 if view_signature:
                     view_signatures.add(view_signature)
@@ -201,10 +203,16 @@ class DeviceState(object):
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             view_str = view_dict['view_str']
-            if self.device.adapters[self.device.minicap]:
-                view_file_path = "%s/view_%s.jpg" % (output_dir, view_str)
+            # Crop the wiget image from the screenshot
+            if not self.device.is_harmonyos:
+                # Android
+                if self.device.adapters[self.device.minicap]:
+                    view_file_path = "%s/view_%s.jpg" % (output_dir, view_str)
+                else:
+                    view_file_path = "%s/view_%s.png" % (output_dir, view_str)
             else:
-                view_file_path = "%s/view_%s.png" % (output_dir, view_str)
+                # HarmonyOS
+                view_file_path = "%s/view_%s.jpeg" % (output_dir, view_str)
             if os.path.exists(view_file_path):
                 return
             from PIL import Image
@@ -397,6 +405,8 @@ class DeviceState(object):
         """
         depth = 0
         for activity_str in self.activity_stack:
+            if not activity_str:
+                return -1
             if app.package_name in activity_str:
                 return depth
             depth += 1
@@ -417,10 +427,10 @@ class DeviceState(object):
             if self.__safe_dict_get(view_dict, 'enabled') and \
                     self.__safe_dict_get(view_dict, 'visible') and \
                     self.__safe_dict_get(view_dict, 'resource_id') not in \
-               ['android:id/navigationBarBackground',
-                'android:id/statusBarBackground']:
+               ['android:id/navigationBarBackground', 'android:id/statusBarBackground'] and \
+                self.__safe_dict_get(view_dict, "package") != "com.ohos.sceneboard":
                 enabled_view_ids.append(view_dict['temp_id'])
-        # enabled_view_ids.reverse()
+        # enabled_view_ids.reverse(self.__safe_dict_get(view_dict, "package"))
 
         for view_id in enabled_view_ids:
             if self.__safe_dict_get(self.views[view_id], 'clickable'):
@@ -467,6 +477,7 @@ class DeviceState(object):
         return [] + possible_events
 
     def get_text_representation(self, merge_buttons=False):
+        # TODO edit this func to adapt HDC
         """
         Get a text representation of current state
         """
@@ -476,7 +487,8 @@ class DeviceState(object):
             if self.__safe_dict_get(view_dict, 'visible') and \
                 self.__safe_dict_get(view_dict, 'resource_id') not in \
                ['android:id/navigationBarBackground',
-                'android:id/statusBarBackground']:
+                'android:id/statusBarBackground'] and \
+                self.__safe_dict_get(view_dict, "package") != "com.ohos.sceneboard":
                 enabled_view_ids.append(view_dict['temp_id'])
         
         text_frame = "<p id=@ text='&' attr=null bounds=null>#</p>"
@@ -505,7 +517,8 @@ class DeviceState(object):
             selected = self.__safe_dict_get(view, 'selected', default=False)
             content_description = self.__safe_dict_get(view, 'content_description', default='')
             view_text = self.__safe_dict_get(view, 'text', default='')
-            view_class = self.__safe_dict_get(view, 'class').split('.')[-1]
+            # TODO: how to process the class?
+            # view_class = self.__safe_dict_get(view, 'class').split('.')[-1]
             bounds = self.__safe_dict_get(view, 'bounds')
             view_bounds = f'{bounds[0][0]},{bounds[0][1]},{bounds[1][0]},{bounds[1][1]}'
             if not content_description and not view_text and not scrollable:  # actionable?
@@ -592,7 +605,9 @@ class DeviceState(object):
 
         # prefix = 'The current state has the following UI elements: \n' #views and corresponding actions, with action id in parentheses:\n '
         state_desc = '\n'.join(view_descs)
-        activity = self.foreground_activity.split('/')[-1]
+        
+        activity = self.foreground_activity.split('/')[-1] if self.foreground_activity else None
+        
         # print(views_without_id)
         return state_desc, activity, indexed_views
 
@@ -633,3 +648,5 @@ class DeviceState(object):
         merged_desc = '<br>'.join(content_descriptions) if len(content_descriptions) > 0 else ''
         return merged_text, merged_desc
 
+if __name__ == "__main__":
+    print("run")

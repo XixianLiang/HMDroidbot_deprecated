@@ -4,25 +4,25 @@ import logging
 import re
 from .adapter import Adapter
 import time
+import os
 try:
     from shlex import quote # Python 3
 except ImportError:
     from pipes import quote # Python 2
 
-
-class ADBException(Exception):
+class HDCException(Exception):
     """
-    Exception in ADB connection
+    Exception in HDC connection
     """
     pass
 
 
-class ADB(Adapter):
+class HDC(Adapter):
     """
-    interface of ADB
-    send adb commands via this, see:
-    http://developer.android.com/tools/help/adb.html
+    interface of HDC
     """
+    HDC_EXEC = "hdc.exe"
+    # TODO don't know what's this
     UP = 0
     DOWN = 1
     DOWN_AND_UP = 2
@@ -34,8 +34,8 @@ class ADB(Adapter):
 
     def __init__(self, device=None):
         """
-        initiate a ADB connection from serial no
-        the serial no should be in output of `adb devices`
+        initiate a HDC connection from serial no
+        the serial no should be in output of `hdc devices`
         :param device: instance of Device
         :return:
         """
@@ -45,22 +45,40 @@ class ADB(Adapter):
             device = Device()
         self.device = device
 
-        self.cmd_prefix = ['adb', "-s", device.serial]
+        self.cmd_prefix = [self.HDC_EXEC, "-t", device.serial]
+
+    
+    def set_up(self):
+        # make the temp path in output dir to store the dumped layout result
+        temp_path = os.getcwd() + "/" + self.device.output_dir + "/temp"
+        if os.path.exists(temp_path):
+            import shutil
+            shutil.rmtree(temp_path)
+        os.mkdir(temp_path)
+
+    def tear_down(self):
+        pass
+        # temp_path = os.getcwd() + "/" + self.device.output_dir + "/temp"
+        # if os.path.exists(temp_path):
+        #     import shutil
+        #     shutil.rmtree(temp_path)
+
 
     def run_cmd(self, extra_args):
         """
-        run an adb command and return the output
-        :return: output of adb command
-        @param extra_args: arguments to run in adb
+        run a hdc command and return the output
+        :return: output of hdc command
+        @param extra_args: arguments to run in hdc
         """
         if isinstance(extra_args, str):
             extra_args = extra_args.split()
         if not isinstance(extra_args, list):
             msg = "invalid arguments: %s\nshould be list or str, %s given" % (extra_args, type(extra_args))
             self.logger.warning(msg)
-            raise ADBException(msg)
+            raise HDCException(msg)
 
-        args = [] + self.cmd_prefix
+        args = ["hdc.exe"]
+        # args = [] + self.cmd_prefix    TODO 写到有设备号的时候用这一行
         args += extra_args
 
         self.logger.debug('command:')
@@ -72,39 +90,41 @@ class ADB(Adapter):
         self.logger.debug(r)
         return r
 
+
     def shell(self, extra_args):
         """
-        run an `adb shell` command
+        run an `hdc shell` command
         @param extra_args:
-        @return: output of adb shell command
+        @return: output of hdc shell command
         """
         if isinstance(extra_args, str):
             extra_args = extra_args.split()
         if not isinstance(extra_args, list):
             msg = "invalid arguments: %s\nshould be list or str, %s given" % (extra_args, type(extra_args))
             self.logger.warning(msg)
-            raise ADBException(msg)
+            raise HDCException(msg)
 
         shell_extra_args = ['shell'] + [ quote(arg) for arg in extra_args ]
         return self.run_cmd(shell_extra_args)
 
     def check_connectivity(self):
         """
-        check if adb is connected
+        check if hdc is connected
         :return: True for connected
         """
-        r = self.run_cmd("get-state")
-        return r.startswith("device")
+        #TODO not support this method
+        r = self.run_cmd("list targets")
+        return not r.startswith("[Empty]")
 
     def connect(self):
         """
-        connect adb
+        connect hdc
         """
         self.logger.debug("connected")
 
     def disconnect(self):
         """
-        disconnect adb
+        disconnect hdc
         """
         print("[CONNECTION] %s is disconnected" % self.__class__.__name__)
 
@@ -120,33 +140,33 @@ class ADB(Adapter):
         """
         Get device model number. e.g. SM-G935F
         """
-        return self.get_property(ADB.MODEL_PROPERTY)
+        return self.get_property(HDC.MODEL_PROPERTY)
 
     def get_sdk_version(self):
         """
         Get version of SDK, e.g. 18, 20
         """
-        return int(self.get_property(ADB.VERSION_SDK_PROPERTY))
+        return int(self.get_property(HDC.VERSION_SDK_PROPERTY))
 
     def get_release_version(self):
         """
         Get release version, e.g. 4.3, 6.0
         """
-        return self.get_property(ADB.VERSION_RELEASE_PROPERTY)
+        return self.get_property(HDC.VERSION_RELEASE_PROPERTY)
 
     def get_ro_secure(self):
         """
         get ro.secure value
         @return: 0/1
         """
-        return int(self.get_property(ADB.RO_SECURE_PROPERTY))
+        return int(self.get_property(HDC.RO_SECURE_PROPERTY))
 
     def get_ro_debuggable(self):
         """
         get ro.debuggable value
         @return: 0/1
         """
-        return int(self.get_property(ADB.RO_DEBUGGABLE_PROPERTY))
+        return int(self.get_property(HDC.RO_DEBUGGABLE_PROPERTY))
 
     # The following methods are originally from androidviewclient project.
     # https://github.com/dtmilano/AndroidViewClient.
@@ -270,14 +290,11 @@ class ADB(Adapter):
         Get the package names and apk paths of installed apps on the device
         :return: a dict, each key is a package name of an app and each value is the file path to the apk
         """
-        app_lines = self.shell("pm list packages -f").splitlines()
-        app_line_re = re.compile("package:(?P<apk_path>.+)=(?P<package>[^=]+)")
-        package_to_path = {}
+        app_lines = self.shell("bm dump -a").splitlines()
+        installed_bundle = []
         for app_line in app_lines:
-            m = app_line_re.match(app_line)
-            if m:
-                package_to_path[m.group('package')] = m.group('apk_path')
-        return package_to_path
+            installed_bundle.append(app_line.strip())
+        return installed_bundle
 
     def get_display_density(self):
         display_info = self.get_display_info()
@@ -310,26 +327,29 @@ class ADB(Adapter):
         """
         Unlock the screen of the device
         """
-        self.shell("input keyevent MENU")
-        self.shell("input keyevent BACK")
+        self.shell("uitest uiInput keyEvent Home")
+        self.shell("uitest uiInput keyEvent Back")
 
     def press(self, key_code):
         """
         Press a key
         """
-        self.shell("input keyevent %s" % key_code)
+        self.shell("uitest uiInput keyEvent %s" % key_code)
 
     def touch(self, x, y, orientation=-1, event_type=DOWN_AND_UP):
         if orientation == -1:
             orientation = self.get_orientation()
-        self.shell("input tap %d %d" %
+        self.shell("uitest uiInput click %d %d" %
                    self.__transform_point_by_orientation((x, y), orientation, self.get_orientation()))
 
     def long_touch(self, x, y, duration=2000, orientation=-1):
         """
         Long touches at (x, y)
         """
-        self.drag((x, y), (x, y), duration, orientation)
+        if orientation == -1:
+            orientation = self.get_orientation()
+        self.shell("uitest uiInput longClick %d %d" %
+                   self.__transform_point_by_orientation((x, y), orientation, self.get_orientation()))
 
     def drag(self, start_xy, end_xy, duration, orientation=-1):
         """
@@ -346,15 +366,11 @@ class ADB(Adapter):
         (x0, y0) = self.__transform_point_by_orientation((x0, y0), orientation, self.get_orientation())
         (x1, y1) = self.__transform_point_by_orientation((x1, y1), orientation, self.get_orientation())
 
-        version = self.get_sdk_version()
-        if version <= 15:
-            self.logger.error("drag: API <= 15 not supported (version=%d)" % version)
-        elif version <= 17:
-            self.shell("input swipe %d %d %d %d" % (x0, y0, x1, y1))
-        else:
-            self.shell("input touchscreen swipe %d %d %d %d %d" % (x0, y0, x1, y1, duration))
-
+        self.shell("uitest uiInput swipe %d %d %d %d %d" % (x0, y0, x1, y1, duration))
+        
     def type(self, text):
+        # TODO 华为的 inputText 不太一样
+        # hdc shell uitest uiInput inputText 100 100 hello
         if isinstance(text, str):
             escaped = text.replace("%s", "\\%s")
             encoded = escaped.replace(" ", "%s")
@@ -362,3 +378,154 @@ class ADB(Adapter):
             encoded = str(text)
         # TODO find out which characters can be dangerous, and handle non-English characters
         self.shell("input text %s" % encoded)
+
+    """
+    TODO 从这行开始是我加的东西
+    """
+    @staticmethod
+    def __safe_dict_get(view_dict, key, default=None):
+        value = view_dict[key] if key in view_dict else None
+        return value if value is not None else default
+    
+    @staticmethod
+    def get_relative_path(absolute_path:str) -> str:
+        """
+        return the relative path in win style
+        """
+        workspace = os.getcwd()
+        relative_path = absolute_path.replace(workspace, "")
+        relative_path = relative_path.replace("/", "\\")
+        return relative_path
+    
+    def dump_view(self)->str:
+        """
+        Using uitest to dumpLayout, and return the remote path of the layout file
+        :Return: remote path
+        """
+        r = self.shell("uitest dumpLayout")
+        remote_path = r.split(":")[-1]
+        return remote_path
+
+    # def dump_views(self):
+    #     """
+    #     dump layout and recv the layout from the device
+    #     """
+    #     r = self.shell("uitest dumpLayout")
+    #     remote_path = r.split(":")[-1]
+    #     file_name = os.path.basename(remote_path)
+    #     temp_path = os.path.join(self.device.output_dir, "temp")
+    #     local_path = os.path.join(os.getcwd(), temp_path, file_name)
+
+    #     p = "file recv {} {}".format(remote_path, HDC.get_relative_path(local_path))
+
+    #     r2 = self.run_cmd("file recv {} {}".format(remote_path, HDC.get_relative_path(local_path)))
+    #     assert not r2.startswith("[Fail]"), "Error with receiving dump layout"
+
+    #     with open(local_path, "r") as f:
+    #         import json
+    #         raw_views = json.load(f)
+    #     # print(r)
+    #     return raw_views
+
+
+    def get_views(self, views_path):
+        """
+        bfs the view tree and turn it into the android style
+        views list
+        ### :param: view path
+        """
+        from collections import deque
+        self.views = []
+
+
+        with open(views_path, "r") as f:
+            import json
+            self.views_raw = json.load(f)
+
+        # process the root node
+        self.views_raw["attributes"]["parent"] = -1
+
+        # add it into a queue to bfs
+        queue = deque([self.views_raw])
+        temp_id = 0
+
+        while queue:
+            node:dict = queue.popleft()
+
+            # process the node and add some attribute which Droidbot can
+            # recongnize while traversing
+            node["attributes"]["temp_id"] = temp_id
+            node["attributes"]["child_count"] = len(node["children"])
+            node["attributes"]["children"] = list()
+
+            # process the view, turn it into android style and add to view list
+            self.views.append(self.get_adb_view(node["attributes"]))
+
+            # bfs the tree
+            for child in node["children"]:
+                child["attributes"]["parent"] = temp_id
+                if "bundleName" in node["attributes"]:
+                    child["attributes"]["bundleName"] = HDC.__safe_dict_get(node["attributes"], "bundleName")
+                queue.append(child)
+            
+            temp_id += 1
+        
+        # get the 'children' attributes
+        self.get_view_children()
+
+        return self.views
+        
+    def get_view_children(self):
+        """
+        get the 'children' attributes by the 'parent'
+        """
+        for view in self.views:
+            temp_id = HDC.__safe_dict_get(view, "parent")
+            if temp_id > -1:
+                self.views[temp_id]["children"].append(view["temp_id"])
+                assert self.views[temp_id]["temp_id"] == temp_id
+    
+    def get_adb_view(self, raw_view:dict):
+        """
+        process the view and turn it into the android style
+        """
+        view = dict()
+        for key, value in raw_view.items():
+            # adapt the attributes into adb form
+            if key in ["visible", "checkable", "enabled", "clickable", \
+                       "scrollable", "selected", "focused", "checked"]:
+                view[key] = True if value in ["True", "true"] else False
+                continue
+            if key == "longClickable":
+                view["long_clickable"] = bool(value)
+                continue
+            if key == "bounds":
+                view[key] = self.get_bounds(value)
+                view["size"] = self.get_size(value)
+                continue
+            if key == "bundleName":
+                view["package"] = value
+                continue
+            if key == "description":
+                view["content_description"] = value
+                continue
+            if key == "type":
+                view["class"] = value
+                continue
+            view[key] = value
+    
+        return view
+    
+    def get_bounds(self, raw_bounds:str):
+        # capturing the coordinate of the bounds and return 2-dimensional list
+        # e.g.  "[10,20][30,40]" -->  [[10, 20], [30, 40]]
+        import re
+        size_pattern = r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]"
+        match = re.search(size_pattern, raw_bounds)
+        if match:
+            return [[int(match.group(1)), int(match.group(2))], \
+                    [int(match.group(3)), int(match.group(4))]]
+    
+    def get_size(self, raw_bounds:str):
+        bounds = self.get_bounds(raw_bounds)
+        return f"{bounds[1][0]-bounds[0][0]}*{bounds[1][1]-bounds[0][1]}"

@@ -183,11 +183,11 @@ class EventLog(object):
         self.is_profiling = False
         self.profiling_pid = -1
         self.sampling = None
+
         # sampling feature was added in Android 5.0 (API level 21)
-        if profiling_method is not None and \
-           str(profiling_method) != "full" and \
-           self.device.get_sdk_version() >= 21:
-            self.sampling = int(profiling_method)
+        if not self.device.is_harmonyos:
+            if (profiling_method is not None) and (str(profiling_method) != "full") and (self.device.get_sdk_version() >= 21):
+                self.sampling = int(profiling_method)
 
     def to_dict(self):
         return {

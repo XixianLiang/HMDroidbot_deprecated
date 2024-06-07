@@ -89,6 +89,11 @@ def parse_args():
                         help="Ignore Ad views by checking resource_id.")
     parser.add_argument("-replay_output", action="store", dest="replay_output",
                         help="The droidbot output directory being replayed.")
+    
+    # for HarmonyOS
+    parser.add_argument("-is_harmonyos", action="store_true", dest="is_harmonyos",
+                        help="Declare if the target platform is harmonyos")
+
     options = parser.parse_args()
     # print options
     return options
@@ -165,7 +170,8 @@ def main():
             master=opts.master,
             humanoid=opts.humanoid,
             ignore_ad=opts.ignore_ad,
-            replay_output=opts.replay_output)
+            replay_output=opts.replay_output,
+            is_harmonyos=opts.is_harmonyos)
         droidbot.start()
     return
 

@@ -116,8 +116,9 @@ class UTG(object):
             self.G2.add_node(state.structure_str, states=[])
         self.G2.nodes[state.structure_str]['states'].append(state)
 
-        if state.foreground_activity.startswith(self.app.package_name):
-            self.reached_activities.add(state.foreground_activity)
+        if state.foreground_activity:
+            if state.foreground_activity.startswith(self.app.package_name):
+                self.reached_activities.add(state.foreground_activity)
 
     def __output_utg(self):
         """
@@ -139,9 +140,9 @@ class UTG(object):
         utg_edges = []
         for state_str in self.G.nodes():
             state = self.G.nodes[state_str]["state"]
-            package_name = state.foreground_activity.split("/")[0]
-            activity_name = state.foreground_activity.split("/")[1]
-            short_activity_name = activity_name.split(".")[-1]
+            package_name = state.foreground_activity.split("/")[0] if state.foreground_activity else ""
+            activity_name = state.foreground_activity.split("/")[1] if state.foreground_activity else ""
+            short_activity_name = activity_name.split(".")[-1] if activity_name else ""
 
             state_desc = list_to_html_table([
                 ("package", package_name),
@@ -177,18 +178,24 @@ class UTG(object):
             from_state = state_transition[0]
             to_state = state_transition[1]
 
+            
             events = self.G[from_state][to_state]["events"]
             event_short_descs = []
             event_list = []
 
             for event_str, event_info in sorted(iter(events.items()), key=lambda x: x[1]["id"]):
                 event_short_descs.append((event_info["id"], event_str))
-                if self.device.adapters[self.device.minicap]:
-                    view_images = ["views/view_" + view["view_str"] + ".jpg"
-                                   for view in event_info["event"].get_views()]
+                
+                if not self.device.is_harmonyos:
+                    if self.device.adapters[self.device.minicap]:
+                        view_images = ["views/view_" + view["view_str"] + ".jpg"
+                                    for view in event_info["event"].get_views()]
+                    else:
+                        view_images = ["views/view_" + view["view_str"] + ".png"
+                                    for view in event_info["event"].get_views()]
                 else:
-                    view_images = ["views/view_" + view["view_str"] + ".png"
-                                   for view in event_info["event"].get_views()]
+                    view_images = ["views/view_" + view["view_str"] + ".jpeg"
+                                    for view in event_info["event"].get_views()]
                 event_list.append({
                     "event_str": event_str,
                     "event_id": event_info["id"],
