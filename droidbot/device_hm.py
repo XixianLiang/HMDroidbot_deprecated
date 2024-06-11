@@ -827,7 +827,6 @@ class DeviceHM(Device):
         # self.adb.shell("reboot -p")
 
     def get_views(self):
-        # TODO add hdc adapter
         if self.hdc:
             views = self.hdc_get_views()
             if views:

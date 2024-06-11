@@ -1,10 +1,11 @@
-# This is the interface for adb
+# This is the interface for hdc
 import subprocess
 import logging
 import re
 from .adapter import Adapter
 import time
 import os
+import pathlib
 try:
     from shlex import quote # Python 3
 except ImportError:
@@ -392,9 +393,8 @@ class HDC(Adapter):
         """
         return the relative path in win style
         """
-        workspace = os.getcwd()
-        relative_path = absolute_path.replace(workspace, "")
-        relative_path = relative_path.replace("/", "\\")
+        workspace = pathlib.Path(os.getcwd())
+        relative_path = pathlib.PureWindowsPath(pathlib.Path(absolute_path).relative_to(workspace))
         return relative_path
     
     def dump_view(self)->str:
