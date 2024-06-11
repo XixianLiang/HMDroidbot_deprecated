@@ -889,14 +889,6 @@ class Device(object):
                 return views
             else:
                 self.logger.warning("Failed to get views using Accessibility.")
-        # TODO add hdc adapter
-        if self.hdc:
-            views = self.hdc.get_views()
-            if views:
-                return views
-            else:
-                self.logger.warning("Failed to get views using HDC.")
-        
 
         self.logger.warning("failed to get current views!")
         return None

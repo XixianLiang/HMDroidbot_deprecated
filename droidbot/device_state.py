@@ -177,10 +177,13 @@ class DeviceState(object):
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             dest_state_json_path = "%s/state_%s.json" % (output_dir, self.tag)
-            if self.device.adapters[self.device.minicap]:
-                dest_screenshot_path = "%s/screen_%s.jpg" % (output_dir, self.tag)
+            if not self.device.is_harmonyos:
+                if self.device.adapters[self.device.minicap]:
+                    dest_screenshot_path = "%s/screen_%s.jpg" % (output_dir, self.tag)
+                else:
+                    dest_screenshot_path = "%s/screen_%s.png" % (output_dir, self.tag)
             else:
-                dest_screenshot_path = "%s/screen_%s.png" % (output_dir, self.tag)
+                dest_screenshot_path = "%s/screen_%s.jpeg" % (output_dir, self.tag)
             state_json_file = open(dest_state_json_path, "w")
             state_json_file.write(self.to_json())
             state_json_file.close()
